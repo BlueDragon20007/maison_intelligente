@@ -1,6 +1,7 @@
 #include <LCD_I2C.h>
 #include <AccelStepper.h>
 #include <HCSR04.h>
+#include "SSD1306.h"
 #define TRIGGER_PIN 9
 #define ECHO_PIN 10
 HCSR04 hc(TRIGGER_PIN, ECHO_PIN);
@@ -12,16 +13,35 @@ HCSR04 hc(TRIGGER_PIN, ECHO_PIN);
 #define LED_RED 13
 #define LED_GREEN 12
 #define LED_BLUE 11
+// #define SCREEN_WIDTH 128
+// #define SCREEN_HEIGHT 64
+// #define OLED_RESET -1
+// #define SCREEN_ADDRESS 0x3C
 
+SSD1306 display(SCREEN_ADDRESS);
+//Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 LCD_I2C lcd(0x27, 16, 2);
 
 AccelStepper myStepper(AccelStepper::FULL4WIRE, IN_1, IN_3, IN_2, IN_4);
 
-enum State { alarm,
-             tooClose,
-             automatic,
-             tooFar };
+enum State {
+  alarm,
+  tooClose,
+  automatic,
+  tooFar
+};
+
+enum Commands {
+  NONE,
+  G_DIST,
+  CFG_ALM,
+  CFG_LIM_INF,
+  CFG_LIM_SUP,
+  UNKNOWN
+};
+
+Commands command = NONE;
 
 State state;
 
@@ -35,7 +55,7 @@ int angle = 0;
 int currentAngle = 0;
 int steps = 0;
 
-int distance = 0;
+int distance = 40;
 int newDistance = 0;
 int minDistance = 30;
 int maxDistance = 60;
@@ -55,6 +75,8 @@ int startingPrintTime = 2000;
 
 bool ledState = false;
 
+String input = "";
+
 void setup() {
   Serial.begin(115200);
   pinMode(TRIGGER_PIN, OUTPUT);
@@ -68,6 +90,8 @@ void setup() {
   myStepper.setAcceleration(stepperAcceleration);  // Accélération en pas/seconde²
   myStepper.setSpeed(stepperSpeed);                // Vitesse constante en pas/seconde
 
+  display.begin();
+
   lcd.begin();
   lcd.backlight();
   lcd.print("6307713");
@@ -80,6 +104,10 @@ void setup() {
 void loop() {
   currentTime = millis();
 
+  display.update();
+
+  handleSerialCommands();
+
   getDistance();
 
   stateManager();
@@ -90,8 +118,81 @@ void loop() {
 
   lcdTask();
 
-  serialTask();
+  //serialTask();
 }
+
+void manageCommand(String input) {
+  if (input == "gDist" || input == "g_dist") {
+    command = G_DIST;
+  } else if (input.startsWith("cfg;alm;")) {
+    command = CFG_ALM;
+  } else if (input.startsWith("cfg;lim_inf;")) {
+    command = CFG_LIM_INF;
+  } else if (input.startsWith("cfg;lim_sup;")) {
+    command = CFG_LIM_SUP;
+  } else {
+    command = UNKNOWN;
+  }
+}
+
+void handleSerialCommands() {
+  if (Serial.available() > 0) {
+    input = Serial.readStringUntil('\n');
+    input.trim();
+    //Serial.println("You typed: " + input);
+
+    manageCommand(input);
+
+    switch (command) {
+      case G_DIST:
+        Serial.println(distance);
+        display.displaySuccess();
+        break;
+
+      case CFG_ALM: {
+        int val = input.substring(input.lastIndexOf(';') + 1).toInt();
+        alarmTriggerDistance = val;
+        display.displaySuccess();
+        break;
+      }
+
+      case CFG_LIM_INF: {
+        int val = input.substring(input.lastIndexOf(';') + 1).toInt();
+        if (val >= maxDistance) {
+          Serial.println("Erreur – Limite inférieure plus grande que limite supérieure");
+          display.displayError();
+        } else {
+          minDistance = val;
+          display.displaySuccess();
+        }
+        break;
+      }
+
+      case CFG_LIM_SUP: {
+        int val = input.substring(input.lastIndexOf(';') + 1).toInt();
+        if (val <= minDistance) {
+          Serial.println("Erreur – Limite supérieure plus petite que limite inférieure");
+          display.displayError();
+        } else {
+          maxDistance = val;
+          display.displaySuccess();
+        }
+        break;
+      }
+
+      case UNKNOWN:
+        display.displayUnknown();
+        break;
+
+      default:
+        break;
+    }
+
+    input = "";
+    command = NONE;
+  }
+}
+
 
 void getDistance() {
   static unsigned long lastTime = 0;
@@ -105,7 +206,7 @@ void getDistance() {
 }
 
 void stateManager() {
-   if (distance <= alarmTriggerDistance) {
+  if (distance <= alarmTriggerDistance) {
     state = alarm;
     lastAlarmTriggerTime = currentTime;
   } else if (state == alarm && (currentTime - lastAlarmTriggerTime < 3000)) {
@@ -122,19 +223,19 @@ void stateManager() {
 void runAlarm() {
   static unsigned long lastTime = 0;
   if (state == alarm) {
-    analogWrite(BUZZER_PIN, 2);
+    digitalWrite(BUZZER_PIN, HIGH);
     if (currentTime - lastTime >= alarmBlinkDelay) {
       lastTime = currentTime;
       ledState = !ledState;
     }
     if (ledState) {
-      setColor(0,0,255);
+      setColor(0, 0, 255);
     } else {
-      setColor(255,0,0);
+      setColor(255, 0, 0);
     }
   } else {
     digitalWrite(BUZZER_PIN, LOW);
-    setColor(0,0,0);
+    setColor(0, 0, 0);
   }
 }
 
@@ -188,16 +289,16 @@ void lcdTask() {
   }
 }
 
-void serialTask() {
-  static unsigned long lastTime = 0;
-  if (currentTime - lastTime >= serialDelay) {
-    lastTime = currentTime;
-    Serial.print("etd:6307713,dist:");
-    Serial.print(distance);
-    Serial.print(",deg:");
-    Serial.println(currentAngle);
-  }
-}
+// void serialTask() {
+//   static unsigned long lastTime = 0;
+//   if (currentTime - lastTime >= serialDelay) {
+//     lastTime = currentTime;
+//     Serial.print("etd:6307713,dist:");
+//     Serial.print(distance);
+//     Serial.print(",deg:");
+//     Serial.println(currentAngle);
+//   }
+// }
 
 void setColor(int red, int green, int blue) {
   analogWrite(LED_RED, red);
