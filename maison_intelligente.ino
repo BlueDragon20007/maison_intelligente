@@ -2,17 +2,19 @@
 #include <AccelStepper.h>
 #include <HCSR04.h>
 #include "SSD1306.h"
+#include "Alarm.h"
+#include "ViseurAutomatique.h"
 #define TRIGGER_PIN 9
 #define ECHO_PIN 10
 HCSR04 hc(TRIGGER_PIN, ECHO_PIN);
-#define IN_1 3
-#define IN_2 4
-#define IN_3 5
-#define IN_4 6
-#define BUZZER_PIN 8
-#define LED_RED 13
-#define LED_GREEN 12
-#define LED_BLUE 11
+int IN_1 = 3;
+int IN_2 = 4;
+int IN_3 = 5;
+int IN_4 = 6;
+int BUZZER_PIN = 8;
+int LED_RED = 13;
+int LED_GREEN = 12;
+int LED_BLUE = 11;
 // #define SCREEN_WIDTH 128
 // #define SCREEN_HEIGHT 64
 // #define OLED_RESET -1
@@ -23,14 +25,14 @@ SSD1306 display(SCREEN_ADDRESS);
 
 LCD_I2C lcd(0x27, 16, 2);
 
-AccelStepper myStepper(AccelStepper::FULL4WIRE, IN_1, IN_3, IN_2, IN_4);
+//AccelStepper myStepper(AccelStepper::FULL4WIRE, IN_1, IN_3, IN_2, IN_4);
 
-enum State {
-  alarm,
-  tooClose,
-  automatic,
-  tooFar
-};
+// enum State {
+//   alarm,
+//   tooClose,
+//   automatic,
+//   tooFar
+// };
 
 enum Commands {
   NONE,
@@ -41,9 +43,18 @@ enum Commands {
   UNKNOWN
 };
 
+// enum StateAlarm {
+//   ALARM_OFF,
+//   ALARM_WATCHING,
+//   ALARM_ON,
+//   ALARM_TESTING
+// };
+
+// StateAlarm stateAlarm;
+
 Commands command = NONE;
 
-State state;
+//State state;
 
 unsigned long currentTime;
 unsigned long lcdLastTime = 0;
@@ -55,7 +66,7 @@ int angle = 0;
 int currentAngle = 0;
 int steps = 0;
 
-int distance = 40;
+float distance = 40;
 int newDistance = 0;
 int minDistance = 30;
 int maxDistance = 60;
@@ -77,18 +88,21 @@ bool ledState = false;
 
 String input = "";
 
+ViseurAutomatique viseur(IN_1, IN_2, IN_3, IN_4, distance);
+Alarm alarm(LED_RED, LED_GREEN, LED_BLUE, BUZZER_PIN, &distance);
+
 void setup() {
   Serial.begin(115200);
-  pinMode(TRIGGER_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(LED_RED, OUTPUT);
-  pinMode(LED_GREEN, OUTPUT);
-  pinMode(LED_BLUE, OUTPUT);
+  // pinMode(TRIGGER_PIN, OUTPUT);
+  // pinMode(ECHO_PIN, INPUT);
+  // pinMode(BUZZER_PIN, OUTPUT);
+  // pinMode(LED_RED, OUTPUT);
+  // pinMode(LED_GREEN, OUTPUT);
+  // pinMode(LED_BLUE, OUTPUT);
 
-  myStepper.setMaxSpeed(stepperMaxSpeed);          // Vitesse max en pas/seconde
-  myStepper.setAcceleration(stepperAcceleration);  // Accélération en pas/seconde²
-  myStepper.setSpeed(stepperSpeed);                // Vitesse constante en pas/seconde
+  // myStepper.setMaxSpeed(stepperMaxSpeed);          // Vitesse max en pas/seconde
+  // myStepper.setAcceleration(stepperAcceleration);  // Accélération en pas/seconde²
+  // myStepper.setSpeed(stepperSpeed);                // Vitesse constante en pas/seconde
 
   display.begin();
 
@@ -99,6 +113,9 @@ void setup() {
   lcd.print("Labo 4B");
   delay(startingPrintTime);
   lcd.clear();
+
+  viseur.activer();
+  alarm.turnOn();
 }
 
 void loop() {
@@ -110,11 +127,13 @@ void loop() {
 
   getDistance();
 
-  stateManager();
+  //stateManager();
 
-  runAlarm();
+  //runAlarm();
+  alarm.update();
 
-  runMotor();
+  //runMotor();
+  viseur.update();
 
   lcdTask();
 
@@ -205,60 +224,60 @@ void getDistance() {
   }
 }
 
-void stateManager() {
-  if (distance <= alarmTriggerDistance) {
-    state = alarm;
-    lastAlarmTriggerTime = currentTime;
-  } else if (state == alarm && (currentTime - lastAlarmTriggerTime < 3000)) {
-    // Reste en état alarm
-  } else if (distance < minDistance) {
-    state = tooClose;
-  } else if (distance > maxDistance) {
-    state = tooFar;
-  } else {
-    state = automatic;
-  }
-}
+// void stateManager() {
+//   if (distance <= alarmTriggerDistance) {
+//     state = alarm;
+//     lastAlarmTriggerTime = currentTime;
+//   } else if (state == alarm && (currentTime - lastAlarmTriggerTime < 3000)) {
+//     Reste en état alarm
+//   } else if (distance < minDistance) {
+//     state = tooClose;
+//   } else if (distance > maxDistance) {
+//     state = tooFar;
+//   } else {
+//     state = automatic;
+//   }
+// }
 
-void runAlarm() {
-  static unsigned long lastTime = 0;
-  if (state == alarm) {
-    digitalWrite(BUZZER_PIN, HIGH);
-    if (currentTime - lastTime >= alarmBlinkDelay) {
-      lastTime = currentTime;
-      ledState = !ledState;
-    }
-    if (ledState) {
-      setColor(0, 0, 255);
-    } else {
-      setColor(255, 0, 0);
-    }
-  } else {
-    digitalWrite(BUZZER_PIN, LOW);
-    setColor(0, 0, 0);
-  }
-}
+// void runAlarm() {
+//   static unsigned long lastTime = 0;
+//   if (state == alarm) {
+//     digitalWrite(BUZZER_PIN, HIGH);
+//     if (currentTime - lastTime >= alarmBlinkDelay) {
+//       lastTime = currentTime;
+//       ledState = !ledState;
+//     }
+//     if (ledState) {
+//       setColor(0, 0, 255);
+//     } else {
+//       setColor(255, 0, 0);
+//     }
+//   } else {
+//     digitalWrite(BUZZER_PIN, LOW);
+//     setColor(0, 0, 0);
+//   }
+// }
 
-void runMotor() {
-  if (state == automatic) {
-    angle = map(distance, minDistance, maxDistance, minDegree, maxDegree);
-    steps = angle * stepsByDegree;
+// void runMotor() {
+//   if (state == automatic) {
+//     angle = map(distance, minDistance, maxDistance, minDegree, maxDegree);
+//     steps = angle * stepsByDegree;
 
-    if (myStepper.distanceToGo() == 0) {
-      myStepper.moveTo(steps);
-    }
+//     if (myStepper.distanceToGo() == 0) {
+//       myStepper.moveTo(steps);
+//     }
 
-    myStepper.run();
+//     myStepper.run();
 
-    if (myStepper.distanceToGo() == 0) {
-      myStepper.disableOutputs();
-    }
+//     if (myStepper.distanceToGo() == 0) {
+//       myStepper.disableOutputs();
+//     }
 
-  } else {
-    myStepper.disableOutputs();
-  }
-  currentAngle = myStepper.currentPosition() / stepsByDegree + 1;
-}
+//   } else {
+//     myStepper.disableOutputs();
+//   }
+//   currentAngle = myStepper.currentPosition() / stepsByDegree + 1;
+// }
 
 void lcdTask() {
   static unsigned long lastTime = 0;
@@ -267,38 +286,54 @@ void lcdTask() {
 
     lcd.clear();
     lcd.print("Dist : ");
-    lcd.print(distance);
+    lcd.print((int)distance);
     lcd.print(" cm");
     lcd.setCursor(0, 1);
 
-    switch (state) {
-      case alarm:
-        lcd.print("ALERTE");
-        break;
-      case tooClose:
-        lcd.print("Obj  : Trop Pres");
-        break;
-      case automatic:
-        lcd.print("Angle: ");
-        lcd.print(currentAngle);
-        break;
-      case tooFar:
-        lcd.print("Obj  : Trop Loin");
-        break;
+    AlarmState alarmState = alarm.getState();
+    const char* etatViseur = viseur.getEtatTexte();
+
+    if (alarmState == ON) {
+      lcd.print("ALERTE");
+    } else if (alarmState == WATCHING && distance < minDistance) {
+      lcd.print("Obj  : Trop Pres");
+    } else if (alarmState == WATCHING && distance > maxDistance) {
+      lcd.print("Obj  : Trop Loin");
+    } else if (strcmp(etatViseur, "SUIVI") == 0) {
+      lcd.print("Angle: ");
+      lcd.print((int)viseur.getAngle());
+    } else {
+      lcd.print("Repos");
     }
+
+    // switch (state) {
+    //   case alarm:
+    //     lcd.print("ALERTE");
+    //     break;
+    //   case tooClose:
+    //     lcd.print("Obj  : Trop Pres");
+    //     break;
+    //   case automatic:
+    //     lcd.print("Angle: ");
+    //     lcd.print(currentAngle);
+    //     break;
+    //   case tooFar:
+    //     lcd.print("Obj  : Trop Loin");
+    //     break;
+    // }
   }
 }
 
-// void serialTask() {
-//   static unsigned long lastTime = 0;
-//   if (currentTime - lastTime >= serialDelay) {
-//     lastTime = currentTime;
-//     Serial.print("etd:6307713,dist:");
-//     Serial.print(distance);
-//     Serial.print(",deg:");
-//     Serial.println(currentAngle);
-//   }
-// }
+void serialTask() {
+  static unsigned long lastTime = 0;
+  if (currentTime - lastTime >= serialDelay) {
+    lastTime = currentTime;
+    Serial.print("etd:6307713,dist:");
+    Serial.print(distance);
+    Serial.print(",deg:");
+    Serial.println(currentAngle);
+  }
+}
 
 void setColor(int red, int green, int blue) {
   analogWrite(LED_RED, red);
